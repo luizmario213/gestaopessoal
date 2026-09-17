@@ -55,9 +55,9 @@ const avisados = new Set();
 
 const db = { lancamentos:[], contas:[], habitos:[], marcas:[], fechados:[], eventos:[],
              membros:[], blocos:[], tarefas:[], orcamentos:[], recorrencias:[], metas:[],
-             ideias:[], conexoes:[], empresas:[], cobrancas:[], pagamentos:[] };
+             ideias:[], conexoes:[], empresas:[], cobrancas:[], pagamentos:[], dividas:[], pagamentosDivida:[] };
 
-const TELAS = ["painel","consolidado","fluxo","orcamento","recorrencias","metas","cobrancas","rotina","agenda","ideias","relatorios","ajustes"];
+const TELAS = ["painel","consolidado","fluxo","orcamento","recorrencias","metas","cobrancas","dividas","rotina","agenda","ideias","relatorios","ajustes"];
 const ICONES = {
   painel:'<svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="3" y="15" width="7" height="6" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/></svg>',
   consolidado:'<svg viewBox="0 0 24 24"><path d="M7 8h10l-3-3M17 16H7l3 3"/><rect x="2.5" y="3" width="19" height="18" rx="3"/></svg>',
@@ -66,6 +66,7 @@ const ICONES = {
   recorrencias:'<svg viewBox="0 0 24 24"><path d="M4 10a8 8 0 0113.7-5.6L20 7"/><path d="M20 4v4h-4"/><path d="M20 14a8 8 0 01-13.7 5.6L4 17"/><path d="M4 20v-4h4"/></svg>',
   metas:'<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1"/></svg>',
   cobrancas:'<svg viewBox="0 0 24 24"><path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg>',
+  dividas:'<svg viewBox="0 0 24 24"><path d="M6 2.5h12v19l-3-2-3 2-3-2-3 2z"/><path d="M12 6.5v7M8.5 10l3.5 3.5L15.5 10"/></svg>',
   rotina:'<svg viewBox="0 0 24 24"><path d="M4 7h3M4 12h3M4 17h3"/><path d="M10 7h10M10 12h10M10 17h10"/></svg>',
   agenda:'<svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>',
   ideias:'<svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 00-3 11.2c.6.4 1 1 1 1.8v.5h4v-.5c0-.8.4-1.4 1-1.8A6 6 0 0012 3z"/></svg>',
@@ -74,7 +75,7 @@ const ICONES = {
 };
 const TITULO = { painel:["painel.titulo","painel.sub"], consolidado:["con.titulo","con.sub"], fluxo:["nav.fluxo","sec.fluxo.sub"],
   orcamento:["nav.orcamento","sec.orcamento.sub"], recorrencias:["nav.recorrencias","sec.recorrencias.sub"],
-  metas:["nav.metas","sec.metas.sub"], cobrancas:["nav.cobrancas","cob.sub"],
+  metas:["nav.metas","sec.metas.sub"], cobrancas:["nav.cobrancas","cob.sub"], dividas:["nav.dividas","div.sub"],
   rotina:["nav.rotinaDia","sec.rotinaHoje"],
   agenda:["nav.agenda","sec.compromissos"], ideias:["nav.ideias","ide.sub"],
   relatorios:["nav.relatorios","sec.fechamento.sub"],
@@ -349,11 +350,13 @@ async function carregar(){
     sb.from("ideia_conexoes").select("*"),
     sb.from("empresas").select("*").order("criado_em"),
     sb.from("cobrancas").select("*").order("criado_em"),
-    sb.from("cobranca_pagamentos").select("*").order("data")
+    sb.from("cobranca_pagamentos").select("*").order("data"),
+    sb.from("dividas").select("*").order("criado_em"),
+    sb.from("divida_pagamentos").select("*").order("data")
   ]);
   const err = r.find(x=>x.error);
   if(err) return falhou(err.error);
-  const [l,c,h,m,f,e,mb,bl,tf,orc,rec,mt,pf,id,cx,emp,cob,pag] = r;
+  const [l,c,h,m,f,e,mb,bl,tf,orc,rec,mt,pf,id,cx,emp,cob,pag,dv,pagdv] = r;
   db.lancamentos  = (l.data||[]).map(x=>({...x, valor:Number(x.valor)}));
   db.contas       = (c.data||[]).map(x=>({...x, valor:Number(x.valor||0)}));
   db.habitos = h.data||[]; db.marcas = m.data||[];
@@ -368,6 +371,8 @@ async function carregar(){
   db.empresas = emp.data||[];
   db.cobrancas  = (cob.data||[]).map(x=>({...x, valor_total:Number(x.valor_total)}));
   db.pagamentos = (pag.data||[]).map(x=>({...x, valor:Number(x.valor)}));
+  db.dividas         = (dv.data||[]).map(x=>({...x, valor_total:Number(x.valor_total)}));
+  db.pagamentosDivida = (pagdv.data||[]).map(x=>({...x, valor:Number(x.valor)}));
   perfil = pf.data || null;
 
   // valida a empresa selecionada contra a lista real; se não existir mais, ou nunca houver
@@ -915,6 +920,7 @@ function render(){
   $$(".side .item[data-v]").forEach(b=>b.classList.toggle("on", b.dataset.v===tela));
   const bIdeias = $("item-ideias"); if(bIdeias) bIdeias.hidden = espaco!=="empresa";
   const bCobrancas = $("item-cobrancas"); if(bCobrancas) bCobrancas.hidden = espaco==="empresa";
+  const bDividas = $("item-dividas"); if(bDividas) bDividas.hidden = espaco==="empresa";
   const tbEmp = $("tb-empresa");
   if(tbEmp){
     tbEmp.hidden = espaco!=="empresa";
@@ -922,7 +928,7 @@ function render(){
     if(nomeEl) nomeEl.textContent = (db.empresas.find(x=>x.id===empresaAtual)||{}).nome || t("emp.nenhuma");
   }
   const fn = { painel:vPainel, consolidado:vConsolidado, fluxo:vFluxo, orcamento:vOrcamento, recorrencias:vRecorrencias,
-               metas:vMetas, cobrancas:vCobrancas, rotina:vRotina, agenda:vAgenda, ideias:vIdeias, relatorios:vRelatorios,
+               metas:vMetas, cobrancas:vCobrancas, dividas:vDividas, rotina:vRotina, agenda:vAgenda, ideias:vIdeias, relatorios:vRelatorios,
                ajustes:vAjustes }[tela];
   $("v-"+tela).innerHTML = fn();
   ligarTela();
@@ -1297,6 +1303,90 @@ async function apagarPagamento(id){
   const { error } = await sb.from("cobranca_pagamentos").delete().eq("id", id);
   if(error) return falhou(error);
   db.pagamentos = db.pagamentos.filter(x=>x.id!==id);
+  if(pag.lancamento_id){
+    await sb.from("lancamentos").delete().eq("id", pag.lancamento_id);
+    db.lancamentos = db.lancamentos.filter(x=>x.id!==pag.lancamento_id);
+  }
+  limparMemo(); render(); toast(t("msg.removido"));
+}
+
+/* ---------- DÍVIDAS (só no espaço pessoal) ----------
+   Espelho de Cobranças: valor fixo que VOCÊ deve. Cada pagamento
+   registrado gera, na hora, um lançamento de saída no painel
+   pessoal — o dinheiro já sai de lá sozinho, sem precisar lançar
+   de novo na mão. */
+const pagamentosDeDivida = id => db.pagamentosDivida.filter(x=>x.divida_id===id).sort((a,b)=>b.data.localeCompare(a.data));
+function vDividas(){
+  const ds = [...db.dividas].sort((a,b)=>b.criado_em.localeCompare(a.criado_em));
+  const corpo = !ds.length ? zero(t("vazio.dividas"), t("vazio.dividas.sub"), "foco-divida")
+    : `<div class="pad" style="padding-top:8px">${ds.map(x=>{
+        const pags = pagamentosDeDivida(x.id);
+        const pago = soma(pags);
+        const pct = x.valor_total>0 ? (pago/x.valor_total)*100 : 0;
+        const resta = Math.max(0, x.valor_total - pago);
+        const quitada = resta <= 0.005;
+        return `<div style="padding:16px 0;border-bottom:1px solid var(--linha2)">
+          <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:10px;flex-wrap:wrap">
+            <b style="font-size:16px;flex:1;min-width:120px">${esc(x.nome)}</b>
+            <span class="num t2">${din0(pago)} / ${din0(x.valor_total)}</span>
+            <span class="tag ${quitada?"ver":"lar"}">${quitada ? t("div.quitada") : din0(resta)+" "+t("div.resta")}</span>
+            <button class="x" aria-label="${esc(t('form.apagar'))}" data-del-divida="${x.id}">${ICO.x}</button></div>
+          <span class="barra"><i class="${quitada?"ok":pct>=50?"al":""}" style="width:${Math.min(100,pct).toFixed(1)}%"></i></span>
+          ${!quitada ? `<div class="form" style="margin-top:10px">
+            <input id="pag-div-valor-${x.id}" class="fx" inputmode="decimal" placeholder="${t("div.valorPago")}">
+            <button class="mini lar" data-pag-div-add="${x.id}">${t("div.registrarPag")}</button></div>` : ""}
+          ${pags.length ? `<div style="margin-top:10px;display:flex;flex-direction:column;gap:5px">
+            ${pags.map(p=>`<div style="display:flex;align-items:center;gap:8px">
+              <span class="t3" style="font-size:13px;flex:1">${curto(p.data)} · ${din0(p.valor)}</span>
+              <button class="x" aria-label="${esc(t('form.apagar'))}" data-del-pagamento-divida="${p.id}" style="width:24px;height:24px">${ICO.x}</button></div>`).join("")}
+          </div>` : ""}
+          ${x.nota ? `<div class="t3" style="font-size:13px;margin-top:8px">${esc(x.nota)}</div>` : ""}
+        </div>`; }).join("")}</div>`;
+  return `
+  <div class="card">
+    <div class="pad">${secH(t("sec.dividas"), t("sec.dividas.sub"))}</div>
+    ${corpo}
+    <div class="form">
+      <input id="div-nome" class="fn" placeholder="${t("form.credor")}">
+      <input id="div-valor" class="fx" inputmode="decimal" placeholder="${t("form.valor")}">
+      <button class="mini lar" id="div-add">${t("form.add")}</button></div>
+  </div>`;
+}
+async function registrarPagamentoDivida(id){
+  const el = $("pag-div-valor-"+id); if(!el) return;
+  const v = numBR(el.value);
+  if(v<=0) return toast(t("auth.preencha"), true);
+  const div = db.dividas.find(x=>x.id===id); if(!div) return;
+  const catsS = CATS().pessoal.saida;
+  const catDivida = catsS.includes("divida") ? "divida" : catsS[catsS.length-1];
+  const { data:lanc, error:e1 } = await sb.from("lancamentos").insert({
+    user_id:user.id, espaco:"pessoal", tipo:"saida", data:hoje(), valor:v,
+    categoria:catDivida, nota:t("div.notaLancamento",{nome:div.nome})
+  }).select().single();
+  if(e1) return falhou(e1);
+  const { data:pag, error:e2 } = await sb.from("divida_pagamentos").insert({
+    user_id:user.id, divida_id:id, valor:v, data:hoje(), lancamento_id:lanc.id
+  }).select().single();
+  if(e2) return falhou(e2);
+  db.lancamentos.unshift({...lanc, valor:Number(lanc.valor)});
+  db.lancamentos.sort((a,b)=>b.data.localeCompare(a.data));
+  db.pagamentosDivida.push({...pag, valor:Number(pag.valor)});
+  limparMemo(); render(); toast(t("msg.pagamentoDividaRegistrado"));
+}
+async function apagarDivida(id){
+  if(!confirm(t("div.apagarConf"))) return;
+  const { error } = await sb.from("dividas").delete().eq("id", id);
+  if(error) return falhou(error);
+  db.dividas = db.dividas.filter(x=>x.id!==id);
+  db.pagamentosDivida = db.pagamentosDivida.filter(x=>x.divida_id!==id);
+  render(); toast(t("msg.removido"));
+}
+async function apagarPagamentoDivida(id){
+  const pag = db.pagamentosDivida.find(x=>x.id===id); if(!pag) return;
+  if(!confirm(t("div.apagarPagConf"))) return;
+  const { error } = await sb.from("divida_pagamentos").delete().eq("id", id);
+  if(error) return falhou(error);
+  db.pagamentosDivida = db.pagamentosDivida.filter(x=>x.id!==id);
   if(pag.lancamento_id){
     await sb.from("lancamentos").delete().eq("id", pag.lancamento_id);
     db.lancamentos = db.lancamentos.filter(x=>x.id!==pag.lancamento_id);
@@ -2597,7 +2687,7 @@ function ligar(){
     espaco = b.dataset.e;
     try{ localStorage.setItem("nexvot:espaco", espaco); }catch(e){}
     vibra(10);
-    const foraDeLugar = (tela==="ideias" && espaco!=="empresa") || (tela==="cobrancas" && espaco==="empresa");
+    const foraDeLugar = (tela==="ideias" && espaco!=="empresa") || (tela==="cobrancas" && espaco==="empresa") || (tela==="dividas" && espaco==="empresa");
     if(foraDeLugar) irPara("painel"); else render();
   };
   $$("#seg-espaco button").forEach(b => b.onclick = ()=>trocarEspaco(b));
@@ -2654,7 +2744,7 @@ function ligarDelegacao(){
     if(ac){
       const a = ac.dataset.acao;
       const focos = { "foco-orc":"orc-valor", "foco-rec":"rec-desc", "foco-meta":"meta-nome",
-                      "foco-conta":"c-nome", "foco-tarefa":"t-tit", "foco-cobranca":"cob-nome" };
+                      "foco-conta":"c-nome", "foco-tarefa":"t-tit", "foco-cobranca":"cob-nome", "foco-divida":"div-nome" };
       if(a==="novo") abrirLanc(hoje());
       else if(a==="entrada") abrirLanc(hoje(),"entrada");
       else if(a==="seed-rotina") instalarRotina();
@@ -2843,6 +2933,22 @@ function ligarTela(){
   });
   $$("[data-del-cobranca]").forEach(b=>b.onclick=()=>apagarCobranca(b.dataset.delCobranca));
   $$("[data-del-pagamento]").forEach(b=>b.onclick=()=>apagarPagamento(b.dataset.delPagamento));
+  add("div-add", async ()=>{
+    const n=$("div-nome").value.trim(), v=numBR($("div-valor").value);
+    if(!n||!v) return toast(t("auth.preencha"), true);
+    const { data, error } = await sb.from("dividas").insert({ user_id:user.id, nome:n, valor_total:v }).select().single();
+    if(error) return falhou(error);
+    db.dividas.push({...data, valor_total:Number(data.valor_total)});
+    render(); toast(t("msg.dividaAdd"));
+  });
+  $$("[data-pag-div-add]").forEach(b=>{
+    const id = b.dataset.pagDivAdd;
+    b.onclick = ()=>registrarPagamentoDivida(id);
+    const el = $("pag-div-valor-"+id);
+    if(el) el.onkeydown = e => { if(e.key==="Enter"){ e.preventDefault(); registrarPagamentoDivida(id); } };
+  });
+  $$("[data-del-divida]").forEach(b=>b.onclick=()=>apagarDivida(b.dataset.delDivida));
+  $$("[data-del-pagamento-divida]").forEach(b=>b.onclick=()=>apagarPagamentoDivida(b.dataset.delPagamentoDivida));
   add("t-add", async ()=>{
     const ti=$("t-tit").value.trim(); if(!ti) return;
     if(espaco==="empresa" && !empresaAtual) return toast(t("emp.selecioneAntes"), true);
@@ -2909,7 +3015,7 @@ function ligarTela(){
   [["c-valor","c-add"],["orc-valor","orc-add"],["rec-valor","rec-add"],["meta-alvo","meta-add"],
    ["t-tit","t-add"],["b-tit","b-add"],["m-nome","m-add"],["res-valor","res-salvar"],
    ["id-titulo","id-add"],["id-tituloM","id-addM"],["emp-nome","emp-add"],
-   ["cob-nome","cob-add"],["cob-valor","cob-add"]]
+   ["cob-nome","cob-add"],["cob-valor","cob-add"],["div-nome","div-add"],["div-valor","div-add"]]
    .forEach(([campo,botao])=>{
      const el = $(campo); if(!el) return;
      el.onkeydown = e => { if(e.key==="Enter"){ e.preventDefault(); const b=$(botao); if(b) b.click(); } };
